@@ -415,7 +415,5 @@ header-y += msm_q6vdec.h
 header-y += msm_q6venc.h
 header-y += msm_ion.h
 header-y += msm_rotator.h
-header-y += msm_vidc_dec.h
-header-y += msm_vidc_enc.h
 header-y += spi_aic3254.h
 header-y += tpa2051d3.h
