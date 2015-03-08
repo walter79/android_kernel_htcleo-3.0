@@ -758,6 +758,12 @@ static struct platform_device msm_camera_sensor_s5k3e2fx =
 // bluetooth
 ///////////////////////////////////////////////////////////////////////
 
+/* AOSP style interface */
+
+/*
+ * bluetooth mac address will be parsed in msm_nand_probe
+ * see drivers/mtd/devices/htcleo_nand.c
+ */
 char bdaddr[BDADDR_STR_SIZE];
 
 module_param_string(bdaddr, bdaddr, sizeof(bdaddr), 0400);
@@ -821,6 +827,15 @@ static struct platform_device htcleo_rfkill =
 ///////////////////////////////////////////////////////////////////////
 
 static struct msm_pm_platform_data msm_pm_data[MSM_PM_SLEEP_MODE_NR] = {
+	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE] = {
+		.idle_supported = 1,
+		.suspend_supported = 1,
+		.idle_enabled = 1,
+		.suspend_enabled = 1,
+		.latency = 8594,
+		.residency = 23740,
+	},
+
 	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE] = {
 		.idle_supported = 1,
 		.suspend_supported = 1,
@@ -837,6 +852,15 @@ static struct msm_pm_platform_data msm_pm_data[MSM_PM_SLEEP_MODE_NR] = {
 		.suspend_enabled = 1,
 		.latency = 443,
 		.residency = 1098,
+	},
+
+	[MSM_PM_SLEEP_MODE_WAIT_FOR_INTERRUPT] = {
+		.idle_supported = 1,
+		.suspend_supported = 1,
+		.idle_enabled = 1,
+		.suspend_enabled = 1,
+		.latency = 2,
+		.residency = 0,
 	},
 };
 
@@ -1067,19 +1091,25 @@ static struct platform_device ram_console_device = {
 // Power/Battery
 ///////////////////////////////////////////////////////////////////////
 
+int htcleo_support_super_charger(void)
+{
+	return 1;
+}
+
 static struct htc_battery_platform_data htc_battery_pdev_data = {
 	.func_show_batt_attr = htc_battery_show_attr,
 	.gpio_mbat_in = -1,
 	.gpio_mchg_en_n = HTCLEO_GPIO_BATTERY_CHARGER_ENABLE,
 	.gpio_iset = HTCLEO_GPIO_BATTERY_CHARGER_CURRENT,
-	.gpio_power = HTCLEO_GPIO_POWER_USB,
+	.gpio_adp_9v = HTCLEO_GPIO_POWER_USB,
 	.guage_driver = GUAGE_DS2746,
 	.charger = LINEAR_CHARGER,
 	.m2a_cable_detect = 0,
-	.force_no_rpc = 1,
-	.int_data = {
+//	.force_no_rpc = 1,
+	.func_is_support_super_charger = htcleo_support_super_charger,
+/*	.int_data = {
 		.chg_int = HTCLEO_GPIO_BATTERY_OVER_CHG,
-	},
+	},*/
 };
 
 static struct platform_device htc_battery_pdev = {
@@ -1090,13 +1120,145 @@ static struct platform_device htc_battery_pdev = {
 	},
 };
 
+#ifdef CONFIG_BATTERY_DS2746
 static int get_thermal_id(void)
 {
-	return THERMAL_600;
+	return THERMAL_300_47_3440;
 }
 
-static struct ds2746_platform_data ds2746_pdev_data = {
+static int get_battery_id(void)
+{
+	return BATTERY_ID_SANYO_1300MAH_TWS;
+}
+
+/* battery parameters */
+/*! star_lee 20100426 - update KADC discharge parameter */
+uint32_t m_parameter_sony_1300mah_formosa[] =
+{
+  /* capacity (in 0.01%) -> voltage (in mV)*/
+  10000, 4100, 5500, 3839, 2400, 3759, 400, 3667, 0, 3397,
+};
+
+uint32_t m_parameter_default[] =
+{
+  /* capacity (in 0.01%) -> voltage (in mV)*/
+  10000, 4135, 7500, 3960, 4700, 3800, 1700, 3727, 900, 3674, 300, 3640, 0, 3420,
+};
+
+uint32_t m_parameter_samsung_1230mah_formosa[] =
+{
+  /* capacity (in 0.01%) -> voltage (in mV)*/
+  10000, 4135, 7500, 3960, 4700, 3800, 1700, 3727, 900, 3674, 300, 3640, 0, 3420,
+};
+
+uint32_t m_parameter_htc_2300mah_formosa[] =
+{
+  /* capacity (in 0.01%) -> voltage (in mV)*/
+  10000, 4135, 7500, 3960, 4700, 3800, 1700, 3727, 900, 3674, 300, 3640, 0, 3420,
+};
+
+static uint32_t* m_param_tbl[] = {
+	m_parameter_sony_1300mah_formosa,
+	m_parameter_sony_1300mah_formosa,
+	m_parameter_sony_1300mah_formosa,
+	m_parameter_sony_1300mah_formosa,
+	m_parameter_samsung_1230mah_formosa,
+	m_parameter_htc_2300mah_formosa
+};
+
+static uint32_t fl_25[] = {
+	2300, /* Unknown battery */
+	1280, /* Sony 1300mAh (Formosa) */
+	1280, /* Sony 1300mAh (HTE) */
+	1250, /* Sanyo 1300mAh (HTE) */
+	1230, /* Samsung 1230mAh */
+	2300, /* HTC Extended 2300mAh */
+};
+
+static uint32_t pd_m_coef[] = {
+	24, /* Unknown battery */
+	24, /* Sony 1300mAh (Formosa) */
+	24, /* Sony 1300mAh (HTE) */
+	27, /* Sanyo 1300mAh (HTE) */
+	30, /* Samsung 1230mAh */
+	30, /* HTC Extended 2300mAh */
+};
+
+static uint32_t pd_m_resl[] = {
+	100, /* Unknown battery */
+	100, /* Sony 1300mAh (Formosa) */
+	100, /* Sony 1300mAh (HTE) */
+	100, /* Sanyo 1300mAh (HTE) */
+	100, /* Samsung 1230mAh */
+	100, /* HTC Extended 2300mAh */
+};
+
+static uint32_t pd_t_coef[] = {
+	/* Ex: 140 -> 0.014, 156 -> 0.0156*/
+	140, /* Unknown battery */
+	140, /* Sony 1300mAh (Formosa) */
+	140, /* Sony 1300mAh (HTE) */
+	156, /* Sanyo 1300mAh (HTE) */
+	250, /* Samsung 1230mAh */
+	250, /* HTC Extended 2300mAh */
+};
+
+static int32_t padc[] = {
+	/* mapping temp to temp_index*/
+	200, /* ~20C */
+	100, /* 20~10C  */
+	50, /* 10~5C */
+	0, /* 5~0C */
+	-5, /* 0~-5C */
+	-10, /* -5~-10C */
+	-3000, /* -10C~ */
+};
+
+// PW is always 5 for DS2746
+static int32_t pw[] = {
+	5,
+	5,
+	5,
+	5,
+	5,
+	5,
+};
+
+static uint32_t* pd_m_coef_tbl[] = {pd_m_coef,};
+static uint32_t* pd_m_resl_tbl[] = {pd_m_resl,};
+static uint32_t capacity_deduction_tbl_01p[] = {
+	0, /* ~20C,    upper capacity 100 is usable */
+	0, /* 20~10C,  upper capacity 95 is usable */
+	0, /* 10~5C,   upper capacity 92 is usable */
+	0, /* 5~0C,	upper capacity 90 is usable */
+	0, /* 0~-5C,   upper capacity 87 is usable */
+	0, /* -5~-10C, upper capacity 85 is usable */
+	0, /* -10C~,   upper capacity 85 is usable */
+};
+
+static struct battery_parameter htcleo_battery_parameter = {
+	.fl_25 = fl_25,
+	.pd_m_coef_tbl = pd_m_coef_tbl,
+	.pd_m_coef_tbl_boot = pd_m_coef_tbl,
+	.pd_m_resl_tbl = pd_m_resl_tbl,
+	.pd_m_resl_tbl_boot = pd_m_resl_tbl,
+	.pd_t_coef = pd_t_coef,
+	.padc = padc,
+	.pw = pw,
+	.capacity_deduction_tbl_01p = capacity_deduction_tbl_01p,
+	.id_tbl = NULL,
+	.temp_index_tbl = NULL,
+	.m_param_tbl = m_param_tbl,
+	.m_param_tbl_size = sizeof(m_param_tbl)/sizeof(uint32_t*),
+};
+
+static ds2746_platform_data ds2746_pdev_data = {
 	.func_get_thermal_id = get_thermal_id,
+	.func_get_battery_id = get_battery_id,
+	.func_poweralg_config_init = NULL,	/* by default */
+	.func_update_charging_protect_flag = NULL,	/* by default */
+	.r2_kohm = 0,	/* use get_battery_id, doesn't need this */
+	.batt_param = &htcleo_battery_parameter,
 };
 
 static struct platform_device ds2746_battery_pdev = {
@@ -1106,6 +1268,7 @@ static struct platform_device ds2746_battery_pdev = {
 		.platform_data = &ds2746_pdev_data,
 	},
 };
+#endif
 
 ///////////////////////////////////////////////////////////////////////
 // Real Time Clock
@@ -1145,6 +1308,7 @@ static struct platform_device *devices[] __initdata =
 #endif
 	&htcleo_rfkill,
 	&msm_device_otg,
+//	&msm_device_gadget_peripheral,
 	&qsd_device_spi,
 	&msm_device_dmov,
 	&msm_device_nand,
@@ -1247,6 +1411,16 @@ static void __init msm_device_i2c_init(void)
 ///////////////////////////////////////////////////////////////////////
 // Clocks
 ///////////////////////////////////////////////////////////////////////
+/*
+static struct msm_acpu_clock_platform_data htcleo_clock_data = {
+	.acpu_switch_time_us	= 20,
+	.max_speed_delta_khz	= 256000,
+	.vdd_switch_time_us	= 62,
+	.power_collapse_khz	= 128000,
+	.wait_for_irq_khz	= 128000,
+//	.wait_for_irq_khz	= 19200,   // TCXO
+};
+*/
 
 #ifdef CONFIG_PERFLOCK
 static unsigned htcleo_perf_acpu_table[] = {
@@ -1370,6 +1544,18 @@ static void do_sdc1_reset(void)
 	*sdc1_clk &= ~(1 << 9);
 }
 
+#ifdef CONFIG_HTCLEO_BLINK_ON_BOOT
+static void __init htcleo_blink_camera_led(void){
+	volatile unsigned *bank6_in, *bank6_out;
+	bank6_in = (unsigned int*)(MSM_GPIO1_BASE + 0x0864);
+	bank6_out = (unsigned int*)(MSM_GPIO1_BASE + 0x0814);
+	*bank6_out = *bank6_in ^ 0x200000;
+	mdelay(50);
+	*bank6_out = *bank6_in | 0x200000;
+	mdelay(200);
+}
+#endif // CONFIG_HTCLEO_BLINK_ON_BOOT
+
 #ifndef CONFIG_ION_MSM
 static unsigned pmem_mdp_size = MSM_PMEM_MDP_SIZE;
 static int __init pmem_mdp_size_setup(char *p)
@@ -1457,7 +1643,9 @@ static void __init qsd8x50_calculate_reserve_sizes(void)
 
 static int qsd8x50_paddr_to_memtype(unsigned int paddr)
 {
-	return MEMTYPE_EBI1;
+	if (paddr >= 0x11800000 && paddr < 0x160C0000)
+		return MEMTYPE_EBI1;
+	return MEMTYPE_NONE;
 }
 
 static struct reserve_info qsd8x50_reserve_info __initdata = {
@@ -1484,6 +1672,9 @@ static struct resource msm_fb_resources[] = {
 
 static void __init htcleo_init(void)
 {
+// Cotulla vibro test
+//	*(uint32_t*)0xF800380C |= 0x20;
+
 	printk("htcleo_init()\n");
 	msm_hw_reset_hook = htcleo_reset;
 
@@ -1531,6 +1722,11 @@ static void __init htcleo_init(void)
 	htcleo_init_mmc(0);
 	platform_device_register(&htcleo_timed_gpios);
 
+#ifdef CONFIG_HTCLEO_BLINK_ON_BOOT
+	/* Blink the camera LED shortly to show that we're alive! */
+	htcleo_blink_camera_led();
+#endif // CONFIG_HTCLEO_BLINK_ON_BOOT
+
 }
 
 ///////////////////////////////////////////////////////////////////////
@@ -1540,16 +1736,36 @@ static void __init htcleo_init(void)
 static void __init htcleo_fixup(struct machine_desc *desc, struct tag *tags,
 				 char **cmdline, struct meminfo *mi)
 {
+	/* Blink the camera LED shortly to show that we're alive! */
 	mi->nr_banks = 1;
 	mi->bank[0].start = MSM_EBI1_BANK0_BASE;
 	mi->bank[0].size = MSM_EBI1_BANK0_SIZE;
 }
 
 #if defined(CONFIG_VERY_EARLY_CONSOLE)
+#if defined(CONFIG_HTC_FB_CONSOLE)
+int __init htc_fb_console_init(void);
+#endif
 #if defined(CONFIG_ANDROID_RAM_CONSOLE_EARLY_INIT)
 int __init ram_console_early_init(void);
 #endif
 #endif
+
+static void __init htcleo_allocate_memory_regions(void)
+{
+	unsigned long size;
+
+	size = MSM_FB_SIZE;
+	msm_fb_resources[0].start = MSM_FB_BASE;
+	msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
+	pr_info("allocating %lu bytes at 0x%p (0x%lx physical) for fb\n",
+		size, __va(MSM_FB_BASE), (unsigned long) MSM_FB_BASE);
+}
+
+static void __init htcleo_init_early(void)
+{
+	htcleo_allocate_memory_regions();
+}
 
 static void __init htcleo_map_io(void)
 {
@@ -1559,16 +1775,24 @@ static void __init htcleo_map_io(void)
 
 #if defined(CONFIG_VERY_EARLY_CONSOLE)
 // Init our consoles _really_ early
+#if defined(CONFIG_HTC_FB_CONSOLE)
+	htc_fb_console_init();
+#endif
 #if defined(CONFIG_ANDROID_RAM_CONSOLE_EARLY_INIT)
 	ram_console_early_init();
 #endif
 #endif
 	printk(KERN_ERR "%s: ramconsole init done!\n",__func__);
+//	*(uint32_t*)0xF800380C |= 0x20;
 }
 
 extern struct sys_timer msm_timer;
 
 MACHINE_START(HTCLEO, "htcleo")
+#ifdef CONFIG_MSM_DEBUG_UART
+	.phys_io        = MSM_DEBUG_UART_PHYS,
+	.io_pg_offst    = ((MSM_DEBUG_UART_BASE) >> 18) & 0xfffc,
+#endif
 	.boot_params	= (CONFIG_PHYS_OFFSET + 0x00000100),
 	.fixup		= htcleo_fixup,
 	.map_io		= htcleo_map_io,
@@ -1576,4 +1800,5 @@ MACHINE_START(HTCLEO, "htcleo")
 	.init_irq	= msm_init_irq,
 	.init_machine	= htcleo_init,
 	.timer		= &msm_timer,
+	.init_early     = htcleo_init_early
 MACHINE_END
